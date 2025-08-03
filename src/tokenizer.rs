@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use regex::Regex;
 
 pub fn tokenize(text: &str) -> Vec<&str> {
@@ -27,4 +29,15 @@ pub fn tokenize(text: &str) -> Vec<&str> {
         }
     }
     result
+}
+
+pub fn build_vocabulary(mut tokens: Vec<&str>) -> HashMap<&str, usize> {
+    tokens.sort();
+    tokens.dedup();
+    let mut vocabulary: HashMap<&str, usize> = HashMap::new();
+    for (i, token) in tokens.into_iter().enumerate() {
+        println!("{i} {token}");
+        vocabulary.insert(token, i);
+    }
+    vocabulary
 }
