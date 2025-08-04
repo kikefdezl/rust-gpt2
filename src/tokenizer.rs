@@ -41,3 +41,43 @@ pub fn build_vocabulary(mut tokens: Vec<&str>) -> HashMap<&str, usize> {
     }
     vocabulary
 }
+
+pub struct SimpleTokenizerV1 {
+    str_to_int: HashMap<String, usize>,
+    int_to_str: HashMap<usize, String>,
+}
+
+impl SimpleTokenizerV1 {
+    pub fn from_vocabulary(vocab: &HashMap<&str, usize>) -> Self {
+        let mut str_to_int: HashMap<String, usize> = HashMap::new();
+        let mut int_to_str: HashMap<usize, String> = HashMap::new();
+        for (s, i) in vocab.iter() {
+            str_to_int.insert(s.to_string(), *i);
+            int_to_str.insert(*i, s.to_string());
+        }
+        SimpleTokenizerV1 {
+            str_to_int,
+            int_to_str,
+        }
+    }
+
+    pub fn encode(&self, text: &str) -> Vec<usize> {
+        let tokens = tokenize(text);
+
+        let mut ids: Vec<usize> = Vec::new();
+        for token in tokens {
+            ids.push(*self.str_to_int.get(token).expect("token not in vocabulary"))
+        }
+        ids
+    }
+
+    pub fn decode(&self, token_ids: &Vec<usize>) -> String {
+        let mut text = String::new();
+        for id in token_ids {
+            text.push_str(self.int_to_str.get(id).expect("token id not in vocabulary"));
+            text.push(' ');
+        }
+        let re = Regex::new(r#"\s+([,.?!"()'])"#).unwrap();
+        re.replace_all(&text, "$1").to_string()
+    }
+}
