@@ -2,6 +2,9 @@ use std::collections::HashMap;
 
 use regex::Regex;
 
+pub const END_OF_TEXT_TOKEN: &str = "<|endoftext|>";
+const UNKNOWN_TOKEN: &str = "<|unk|>";
+
 pub fn tokenize(text: &str) -> Vec<&str> {
     let re = Regex::new(r#"([,.:;?_!"()']|--|\s)"#).unwrap();
 
@@ -36,18 +39,19 @@ pub fn build_vocabulary(mut tokens: Vec<&str>) -> HashMap<&str, usize> {
     tokens.dedup();
     let mut vocabulary: HashMap<&str, usize> = HashMap::new();
     for (i, token) in tokens.into_iter().enumerate() {
-        println!("{i} {token}");
         vocabulary.insert(token, i);
     }
+    vocabulary.insert(END_OF_TEXT_TOKEN, vocabulary.len());
+    vocabulary.insert(UNKNOWN_TOKEN, vocabulary.len());
     vocabulary
 }
 
-pub struct SimpleTokenizerV1 {
+pub struct SimpleTokenizer {
     str_to_int: HashMap<String, usize>,
     int_to_str: HashMap<usize, String>,
 }
 
-impl SimpleTokenizerV1 {
+impl SimpleTokenizer {
     pub fn from_vocabulary(vocab: &HashMap<&str, usize>) -> Self {
         let mut str_to_int: HashMap<String, usize> = HashMap::new();
         let mut int_to_str: HashMap<usize, String> = HashMap::new();
@@ -55,7 +59,7 @@ impl SimpleTokenizerV1 {
             str_to_int.insert(s.to_string(), *i);
             int_to_str.insert(*i, s.to_string());
         }
-        SimpleTokenizerV1 {
+        SimpleTokenizer {
             str_to_int,
             int_to_str,
         }
@@ -66,7 +70,10 @@ impl SimpleTokenizerV1 {
 
         let mut ids: Vec<usize> = Vec::new();
         for token in tokens {
-            ids.push(*self.str_to_int.get(token).expect("token not in vocabulary"))
+            match self.str_to_int.get(token) {
+                Some(token_id) => ids.push(*token_id),
+                None => ids.push(*self.str_to_int.get(UNKNOWN_TOKEN).unwrap()),
+            }
         }
         ids
     }
