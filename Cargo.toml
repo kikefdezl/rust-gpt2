@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 bpe-openai = "0.3.0"
+burn = { version = "0.18.0", features = ["dataset"] }
 regex = "1.11.1"
