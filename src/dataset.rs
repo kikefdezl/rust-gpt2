@@ -19,7 +19,7 @@ impl GPTDatasetV1 {
             let target_ids: Vec<u32> = token_ids
                 .iter()
                 .skip(i + 1)
-                .take(max_length + 1)
+                .take(max_length)
                 .cloned()
                 .collect();
 
