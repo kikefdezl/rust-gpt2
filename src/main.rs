@@ -17,10 +17,33 @@ const BATCH_SIZE: usize = 8;
 const NUM_WORKERS: usize = 4;
 const EMBEDDING_DIM: usize = 256;
 
-fn main() {
-    type Backend = Candle;
-    let device = CandleDevice::Cpu;
+type Backend = Candle;
 
+const DEVICE: CandleDevice = CandleDevice::Cpu;
+
+fn main() {
+}
+
+fn _simple_attention() {
+    let embeddings: Tensor<Backend, 2> = Tensor::from_data(
+        [
+            [0.43, 0.15, 0.89],
+            [0.55, 0.87, 0.66],
+            [0.57, 0.85, 0.64],
+            [0.22, 0.58, 0.33],
+            [0.77, 0.25, 0.10],
+            [0.05, 0.80, 0.55],
+        ],
+        &DEVICE,
+    );
+
+    let attn_weights = embeddings.clone().matmul(embeddings.clone().transpose());
+    let attn_weights = burn::tensor::activation::softmax(attn_weights, 1);
+    let result = attn_weights.matmul(embeddings);
+    println!("{}", &result);
+}
+
+fn _preprocess() {
     let text = read_to_string(config::RAW_DATA_FILE).unwrap();
 
     let tokenizer = cl100k_base();
@@ -36,15 +59,15 @@ fn main() {
             .build(dataset);
 
     let embedding_layer: nn::Embedding<Backend> =
-        nn::EmbeddingConfig::new(100_000, EMBEDDING_DIM).init(&device);
+        nn::EmbeddingConfig::new(100_000, EMBEDDING_DIM).init(&DEVICE);
     let pos_embedding_layer: nn::Embedding<Backend> =
-        nn::EmbeddingConfig::new(CONTEXT_LEN, EMBEDDING_DIM).init(&device);
+        nn::EmbeddingConfig::new(CONTEXT_LEN, EMBEDDING_DIM).init(&DEVICE);
 
     let first = dataloader.iter().next().unwrap().inputs;
 
     let token_embeddings = embedding_layer.forward(first);
     let pos_embeddings = pos_embedding_layer
-        .forward(Tensor::arange(0..CONTEXT_LEN as i64, &device).reshape([1, CONTEXT_LEN]));
+        .forward(Tensor::arange(0..CONTEXT_LEN as i64, &DEVICE).reshape([1, CONTEXT_LEN]));
 
     let input_embeddings = token_embeddings + pos_embeddings;
 
