@@ -2,8 +2,9 @@ use bpe_openai::cl100k_base;
 use burn::backend::Candle;
 use burn::backend::candle::CandleDevice;
 use burn::data::dataloader::{DataLoader, DataLoaderBuilder};
-use burn::nn;
+use burn::nn::{self, Embedding};
 use burn::prelude::*;
+use burn::tensor::Distribution;
 use llm_from_scratch::batcher::{GPTBatch, GPTBatcher};
 use llm_from_scratch::config;
 use llm_from_scratch::dataset::GPTDatasetV1;
@@ -22,6 +23,27 @@ type Backend = Candle;
 const DEVICE: CandleDevice = CandleDevice::Cpu;
 
 fn main() {
+    let embeddings: Tensor<Backend, 2> = Tensor::from_data(
+        [
+            [0.43, 0.15, 0.89],
+            [0.55, 0.87, 0.66],
+            [0.57, 0.85, 0.64],
+            [0.22, 0.58, 0.33],
+            [0.77, 0.25, 0.10],
+            [0.05, 0.80, 0.55],
+        ],
+        &DEVICE,
+    );
+    let (d_in, d_out) = (3, 2);
+
+    let distribution = Distribution::Uniform(0.0, 1.0);
+    let w_query: Tensor<Backend, 2> = Tensor::random([d_in, d_out], distribution, &DEVICE);
+    let w_query = burn::module::Param::from_tensor(w_query).set_require_grad(false);
+
+    let q = embeddings.clone().matmul(w_query.val());
+    println!("{q}");
+    // W_key   = torch.nn.Parameter(torch.rand(d_in, d_out), requires_grad=False)
+    // W_value = torch.nn.Parameter(torch.rand(d_in, d_out), requires_grad=False)
 }
 
 fn _simple_attention() {
