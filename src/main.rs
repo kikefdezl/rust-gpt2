@@ -2,7 +2,7 @@ use bpe_openai::cl100k_base;
 use burn::backend::Candle;
 use burn::backend::candle::CandleDevice;
 use burn::data::dataloader::{DataLoader, DataLoaderBuilder};
-use burn::nn::{self, Embedding};
+use burn::nn;
 use burn::prelude::*;
 use burn::tensor::Distribution;
 use llm_from_scratch::batcher::{GPTBatch, GPTBatcher};
@@ -18,12 +18,15 @@ const BATCH_SIZE: usize = 8;
 const NUM_WORKERS: usize = 4;
 const EMBEDDING_DIM: usize = 256;
 
-type Backend = Candle;
-
-const DEVICE: CandleDevice = CandleDevice::Cpu;
-
 fn main() {
-    let embeddings: Tensor<Backend, 2> = Tensor::from_data(
+    type Backend = Candle;
+    let device = CandleDevice::Cpu;
+
+    self_attention::<Backend>(&device);
+}
+
+fn self_attention<B: Backend>(device: &B::Device) {
+    let embeddings: Tensor<B, 2> = Tensor::from_data(
         [
             [0.43, 0.15, 0.89],
             [0.55, 0.87, 0.66],
@@ -32,22 +35,33 @@ fn main() {
             [0.77, 0.25, 0.10],
             [0.05, 0.80, 0.55],
         ],
-        &DEVICE,
+        device,
     );
     let (d_in, d_out) = (3, 2);
 
     let distribution = Distribution::Uniform(0.0, 1.0);
-    let w_query: Tensor<Backend, 2> = Tensor::random([d_in, d_out], distribution, &DEVICE);
-    let w_query = burn::module::Param::from_tensor(w_query).set_require_grad(false);
+    
+    let w_query: Tensor<B, 2> = Tensor::random([d_in, d_out], distribution, device);
+    let w_key: Tensor<B, 2> = Tensor::random([d_in, d_out], distribution, device);
+    let w_value: Tensor<B, 2> = Tensor::random([d_in, d_out], distribution, device);
 
-    let q = embeddings.clone().matmul(w_query.val());
-    println!("{q}");
-    // W_key   = torch.nn.Parameter(torch.rand(d_in, d_out), requires_grad=False)
-    // W_value = torch.nn.Parameter(torch.rand(d_in, d_out), requires_grad=False)
+    let w_query = burn::module::Param::from_tensor(w_query).set_require_grad(false);
+    let w_key = burn::module::Param::from_tensor(w_key).set_require_grad(false);
+    let w_value = burn::module::Param::from_tensor(w_value).set_require_grad(false);
+
+    let q = embeddings.clone().matmul(w_query.val()); // 6, 2
+    let k = embeddings.clone().matmul(w_key.val()); // 6, 2
+    let v = embeddings.clone().matmul(w_value.val()); // 6, 2
+
+    let attn_scores = q.clone().matmul(k.transpose()); // 6, 6
+    let attn_scores = burn::tensor::activation::softmax(attn_scores, 1);
+
+    let context_vector = attn_scores.matmul(v);
+    println!("{}", context_vector);
 }
 
-fn _simple_attention() {
-    let embeddings: Tensor<Backend, 2> = Tensor::from_data(
+fn _simple_attention<B: Backend>(device: &B::Device) {
+    let embeddings: Tensor<B, 2> = Tensor::from_data(
         [
             [0.43, 0.15, 0.89],
             [0.55, 0.87, 0.66],
@@ -56,7 +70,7 @@ fn _simple_attention() {
             [0.77, 0.25, 0.10],
             [0.05, 0.80, 0.55],
         ],
-        &DEVICE,
+        device,
     );
 
     let attn_weights = embeddings.clone().matmul(embeddings.clone().transpose());
@@ -65,7 +79,7 @@ fn _simple_attention() {
     println!("{}", &result);
 }
 
-fn _preprocess() {
+fn _preprocess<B: Backend>(device: &B::Device) {
     let text = read_to_string(config::RAW_DATA_FILE).unwrap();
 
     let tokenizer = cl100k_base();
@@ -74,22 +88,21 @@ fn _preprocess() {
 
     let dataset = GPTDatasetV1::new(&token_ids, CONTEXT_LEN, STRIDE_LEN);
 
-    let dataloader: Arc<dyn DataLoader<Backend, GPTBatch<Backend>>> =
-        DataLoaderBuilder::new(GPTBatcher)
-            .batch_size(BATCH_SIZE)
-            .num_workers(NUM_WORKERS)
-            .build(dataset);
+    let dataloader: Arc<dyn DataLoader<B, GPTBatch<B>>> = DataLoaderBuilder::new(GPTBatcher)
+        .batch_size(BATCH_SIZE)
+        .num_workers(NUM_WORKERS)
+        .build(dataset);
 
-    let embedding_layer: nn::Embedding<Backend> =
-        nn::EmbeddingConfig::new(100_000, EMBEDDING_DIM).init(&DEVICE);
-    let pos_embedding_layer: nn::Embedding<Backend> =
-        nn::EmbeddingConfig::new(CONTEXT_LEN, EMBEDDING_DIM).init(&DEVICE);
+    let embedding_layer: nn::Embedding<B> =
+        nn::EmbeddingConfig::new(100_000, EMBEDDING_DIM).init(device);
+    let pos_embedding_layer: nn::Embedding<B> =
+        nn::EmbeddingConfig::new(CONTEXT_LEN, EMBEDDING_DIM).init(device);
 
     let first = dataloader.iter().next().unwrap().inputs;
 
     let token_embeddings = embedding_layer.forward(first);
     let pos_embeddings = pos_embedding_layer
-        .forward(Tensor::arange(0..CONTEXT_LEN as i64, &DEVICE).reshape([1, CONTEXT_LEN]));
+        .forward(Tensor::arange(0..CONTEXT_LEN as i64, device).reshape([1, CONTEXT_LEN]));
 
     let input_embeddings = token_embeddings + pos_embeddings;
 
