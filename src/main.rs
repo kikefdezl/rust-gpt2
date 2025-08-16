@@ -4,7 +4,6 @@ use burn::backend::candle::CandleDevice;
 use burn::data::dataloader::{DataLoader, DataLoaderBuilder};
 use burn::nn;
 use burn::prelude::*;
-use burn::tensor::Distribution;
 use llm_from_scratch::batcher::{GPTBatch, GPTBatcher};
 use llm_from_scratch::config;
 use llm_from_scratch::dataset::GPTDatasetV1;
@@ -12,7 +11,7 @@ use std::sync::Arc;
 
 use std::fs::read_to_string;
 
-use llm_from_scratch::model::SelfAttentionV1;
+use llm_from_scratch::model::SelfAttention;
 
 const STRIDE_LEN: usize = 4;
 const CONTEXT_LEN: usize = 4;
@@ -40,7 +39,7 @@ fn sandbox<B: Backend>(device: &B::Device) {
         device,
     );
 
-    let attn: SelfAttentionV1<B> = SelfAttentionV1::new(3, 2, device);
+    let attn: SelfAttention<B> = SelfAttention::new(3, 2, false, device);
     let context_vector = attn.forward(embeddings);
     println!("{}", context_vector);
 }

@@ -1,42 +1,39 @@
-use burn::module::{Module, Param};
+use burn::module::Module;
+use burn::nn;
 use burn::prelude::*;
 use burn::tensor::Distribution;
+use burn::tensor::activation::softmax;
 use burn::tensor::backend::Backend;
 
 #[derive(Module, Debug)]
-pub struct SelfAttentionV1<B: Backend> {
-    w_query: Param<Tensor<B, 2>>,
-    w_key: Param<Tensor<B, 2>>,
-    w_value: Param<Tensor<B, 2>>,
+pub struct SelfAttention<B: Backend> {
+    w_query: nn::Linear<B>,
+    w_key: nn::Linear<B>,
+    w_value: nn::Linear<B>,
 }
 
-impl<B: Backend> SelfAttentionV1<B> {
-    pub fn new(d_in: usize, d_out: usize, device: &B::Device) -> Self {
-        let distribution = Distribution::Uniform(0.0, 1.0);
-
-        let w_query: Tensor<B, 2> = Tensor::random([d_in, d_out], distribution, device);
-        let w_key: Tensor<B, 2> = Tensor::random([d_in, d_out], distribution, device);
-        let w_value: Tensor<B, 2> = Tensor::random([d_in, d_out], distribution, device);
-
-        let w_query = Param::from_tensor(w_query).set_require_grad(false);
-        let w_key = Param::from_tensor(w_key).set_require_grad(false);
-        let w_value = Param::from_tensor(w_value).set_require_grad(false);
+impl<B: Backend> SelfAttention<B> {
+    pub fn new(d_in: usize, d_out: usize, qkv_bias: bool, device: &B::Device) -> Self {
+        let query_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
+        let key_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
+        let value_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
 
         Self {
-            w_query,
-            w_key,
-            w_value,
+            w_query: query_config.init(device),
+            w_key: key_config.init(device),
+            w_value: value_config.init(device),
         }
     }
 
     pub fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 2> {
-        let q = input.clone().matmul(self.w_query.val());
-        let k = input.clone().matmul(self.w_key.val());
-        let v = input.matmul(self.w_value.val());
+        let q = input.clone().matmul(self.w_query.weight.val());
+        let k = input.clone().matmul(self.w_key.weight.val());
+        let v = input.matmul(self.w_value.weight.val());
 
-        let attn_scores = q.matmul(k.transpose());
-        let attn_scores = burn::tensor::activation::softmax(attn_scores, 1);
+        let d_k = k.shape().dims[1] as f64;
 
-        attn_scores.matmul(v)
+        let attn = q.matmul(k.transpose());
+        let attn_scaled = softmax(attn.div_scalar(d_k.sqrt()), 1);
+        attn_scaled.matmul(v)
     }
 }
