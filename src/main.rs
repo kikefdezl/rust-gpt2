@@ -12,6 +12,8 @@ use std::sync::Arc;
 
 use std::fs::read_to_string;
 
+use llm_from_scratch::model::SelfAttentionV1;
+
 const STRIDE_LEN: usize = 4;
 const CONTEXT_LEN: usize = 4;
 const BATCH_SIZE: usize = 8;
@@ -22,10 +24,10 @@ fn main() {
     type Backend = Candle;
     let device = CandleDevice::Cpu;
 
-    self_attention::<Backend>(&device);
+    sandbox::<Backend>(&device);
 }
 
-fn self_attention<B: Backend>(device: &B::Device) {
+fn sandbox<B: Backend>(device: &B::Device) {
     let embeddings: Tensor<B, 2> = Tensor::from_data(
         [
             [0.43, 0.15, 0.89],
@@ -37,46 +39,10 @@ fn self_attention<B: Backend>(device: &B::Device) {
         ],
         device,
     );
-    let (d_in, d_out) = (3, 2);
 
-    let distribution = Distribution::Uniform(0.0, 1.0);
-    
-    let w_query: Tensor<B, 2> = Tensor::random([d_in, d_out], distribution, device);
-    let w_key: Tensor<B, 2> = Tensor::random([d_in, d_out], distribution, device);
-    let w_value: Tensor<B, 2> = Tensor::random([d_in, d_out], distribution, device);
-
-    let w_query = burn::module::Param::from_tensor(w_query).set_require_grad(false);
-    let w_key = burn::module::Param::from_tensor(w_key).set_require_grad(false);
-    let w_value = burn::module::Param::from_tensor(w_value).set_require_grad(false);
-
-    let q = embeddings.clone().matmul(w_query.val()); // 6, 2
-    let k = embeddings.clone().matmul(w_key.val()); // 6, 2
-    let v = embeddings.clone().matmul(w_value.val()); // 6, 2
-
-    let attn_scores = q.clone().matmul(k.transpose()); // 6, 6
-    let attn_scores = burn::tensor::activation::softmax(attn_scores, 1);
-
-    let context_vector = attn_scores.matmul(v);
+    let attn: SelfAttentionV1<B> = SelfAttentionV1::new(3, 2, device);
+    let context_vector = attn.forward(embeddings);
     println!("{}", context_vector);
-}
-
-fn _simple_attention<B: Backend>(device: &B::Device) {
-    let embeddings: Tensor<B, 2> = Tensor::from_data(
-        [
-            [0.43, 0.15, 0.89],
-            [0.55, 0.87, 0.66],
-            [0.57, 0.85, 0.64],
-            [0.22, 0.58, 0.33],
-            [0.77, 0.25, 0.10],
-            [0.05, 0.80, 0.55],
-        ],
-        device,
-    );
-
-    let attn_weights = embeddings.clone().matmul(embeddings.clone().transpose());
-    let attn_weights = burn::tensor::activation::softmax(attn_weights, 1);
-    let result = attn_weights.matmul(embeddings);
-    println!("{}", &result);
 }
 
 fn _preprocess<B: Backend>(device: &B::Device) {
