@@ -4,14 +4,15 @@ use burn::backend::candle::CandleDevice;
 use burn::data::dataloader::{DataLoader, DataLoaderBuilder};
 use burn::nn;
 use burn::prelude::*;
+use burn::tensor::Distribution;
+
+use std::fs::read_to_string;
+use std::sync::Arc;
+
 use llm_from_scratch::batcher::{GPTBatch, GPTBatcher};
 use llm_from_scratch::config;
 use llm_from_scratch::dataset::GPTDatasetV1;
-use std::sync::Arc;
-
-use std::fs::read_to_string;
-
-use llm_from_scratch::model::SelfAttention;
+use llm_from_scratch::model::MultiHeadAttention;
 
 const STRIDE_LEN: usize = 4;
 const CONTEXT_LEN: usize = 4;
@@ -27,19 +28,11 @@ fn main() {
 }
 
 fn sandbox<B: Backend>(device: &B::Device) {
-    let embeddings: Tensor<B, 2> = Tensor::from_data(
-        [
-            [0.43, 0.15, 0.89],
-            [0.55, 0.87, 0.66],
-            [0.57, 0.85, 0.64],
-            [0.22, 0.58, 0.33],
-            [0.77, 0.25, 0.10],
-            [0.05, 0.80, 0.55],
-        ],
-        device,
-    );
+    let distribution = Distribution::Default;
+    let embeddings: Tensor<B, 3> = Tensor::random([8, 100, 768], distribution, device);
 
-    let attn: SelfAttention<B> = SelfAttention::new(3, 2, false, device);
+    let d = embeddings.dims()[2];
+    let attn: MultiHeadAttention<B> = MultiHeadAttention::new(d, d, 12, false, device);
     let context_vector = attn.forward(embeddings);
     println!("{}", context_vector);
 }
