@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bpe-openai = "0.3.0"
 burn = { version = "0.18.0", features = ["dataset", "candle"] }
 regex = "1.11.1"
+tiktoken-rs = "0.7.0"

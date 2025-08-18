@@ -1,160 +1,94 @@
 use burn::module::Module;
 use burn::nn;
 use burn::prelude::*;
-use burn::tensor::activation::softmax;
 use burn::tensor::backend::Backend;
 
-#[derive(Module, Debug)]
-pub struct SelfAttention<B: Backend> {
-    w_query: nn::Linear<B>,
-    w_key: nn::Linear<B>,
-    w_value: nn::Linear<B>,
+pub struct GptConfig124M {
+    pub vocab_size: usize,
+    pub context_length: usize,
+    pub embedding_dim: usize,
+    pub n_heads: u32,
+    pub n_layers: u32,
+    pub drop_rate: f32,
+    pub qkv_bias: bool,
 }
 
-impl<B: Backend> SelfAttention<B> {
-    pub fn new(d_in: usize, d_out: usize, qkv_bias: bool, device: &B::Device) -> Self {
-        let query_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
-        let key_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
-        let value_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
-
+impl Default for GptConfig124M {
+    fn default() -> Self {
         Self {
-            w_query: query_config.init(device),
-            w_key: key_config.init(device),
-            w_value: value_config.init(device),
+            vocab_size: 50257,
+            context_length: 1024,
+            embedding_dim: 768,
+            n_heads: 12,
+            n_layers: 12,
+            drop_rate: 0.1,
+            qkv_bias: false,
         }
     }
-
-    pub fn forward(&self, input: Tensor<B, 2>) -> Tensor<B, 2> {
-        let q = input.clone().matmul(self.w_query.weight.val());
-        let k = input.clone().matmul(self.w_key.weight.val());
-        let v = input.matmul(self.w_value.weight.val());
-
-        let d_k = k.shape().dims[1] as f64;
-
-        let attn = q.matmul(k.transpose());
-        let attn_scaled = softmax(attn / d_k.sqrt(), 1);
-        attn_scaled.matmul(v)
-    }
 }
 
-#[derive(Module, Debug)]
-pub struct CausalSelfAttention<B: Backend> {
-    w_query: nn::Linear<B>,
-    w_key: nn::Linear<B>,
-    w_value: nn::Linear<B>,
-    d_out: usize,
-}
+impl GptConfig124M {
+    pub fn init<B: Backend>(&self, device: &B::Device) -> DummyGPTModel<B> {
+        let token_embedding: nn::Embedding<B> =
+            nn::EmbeddingConfig::new(self.vocab_size, self.embedding_dim).init(device);
+        let positional_embedding: nn::Embedding<B> =
+            nn::EmbeddingConfig::new(self.context_length, self.embedding_dim).init(device);
 
-impl<B: Backend> CausalSelfAttention<B> {
-    pub fn new(d_in: usize, d_out: usize, qkv_bias: bool, device: &B::Device) -> Self {
-        let query_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
-        let key_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
-        let value_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
+        let dropout_embedding = nn::DropoutConfig { prob: 0.2 }.init();
 
-        Self {
-            w_query: query_config.init(device),
-            w_key: key_config.init(device),
-            w_value: value_config.init(device),
-            d_out,
+        let transformer_blocks: Vec<nn::Linear<B>> = (0..12)
+            .map(|_| nn::LinearConfig::new(self.embedding_dim, self.embedding_dim).init(device))
+            .collect();
+
+        let norm = nn::LinearConfig::new(self.embedding_dim, self.embedding_dim).init(device);
+
+        let out = nn::LinearConfig::new(self.embedding_dim, self.vocab_size)
+            .with_bias(false)
+            .init(device);
+
+        DummyGPTModel {
+            token_embedding,
+            positional_embedding,
+            dropout_embedding,
+            transformer_blocks,
+            norm,
+            out,
         }
     }
-
-    pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
-        let [b, t, d_in] = input.dims();
-
-        let q = self.w_query.forward(input.clone());
-        let k = self.w_key.forward(input.clone());
-        let v = self.w_value.forward(input);
-
-        let attn = q.matmul(k.transpose());
-
-        // the tril_mask function doesn't respect the batch size so we have
-        // to repeat manually. It also doesn't broadcast properly in mask_fill()
-        let mask: Tensor<B, 3, Bool> = Tensor::tril_mask([b, t, t], 0, &attn.device());
-        let mask = mask.repeat(&[b, 0]);
-
-        let attn_masked = attn.mask_fill(mask, f32::NEG_INFINITY);
-
-        let attn_scaled = softmax(attn_masked / (d_in as f64).sqrt(), 1);
-
-        attn_scaled.matmul(v)
-    }
 }
 
 #[derive(Module, Debug)]
-pub struct MultiHeadAttention<B: Backend> {
-    d_out: usize,
-    n_heads: usize,
-    head_dim: usize,
-    w_query: nn::Linear<B>,
-    w_key: nn::Linear<B>,
-    w_value: nn::Linear<B>,
-    dropout: nn::Dropout,
-    out_proj: nn::Linear<B>,
+pub struct DummyGPTModel<B: Backend> {
+    token_embedding: nn::Embedding<B>,
+    positional_embedding: nn::Embedding<B>,
+    dropout_embedding: nn::Dropout,
+    transformer_blocks: Vec<nn::Linear<B>>,
+    norm: nn::Linear<B>,
+    out: nn::Linear<B>,
 }
 
-impl<B: Backend> MultiHeadAttention<B> {
-    pub fn new(
-        d_in: usize,
-        d_out: usize,
-        num_heads: usize,
-        qkv_bias: bool,
-        device: &B::Device,
-    ) -> Self {
-        assert!(
-            d_out % num_heads == 0,
-            "num_heads must be divisible by d_out"
+impl<B: Backend> DummyGPTModel<B> {
+    pub fn forward(&self, in_idx: Tensor<B, 2, Int>) -> Tensor<B, 3> {
+        let [batch_size, seq_len] = in_idx.dims();
+        let device = &in_idx.device();
+
+        let token_embeddings = self.token_embedding.forward(in_idx);
+
+        let positional_embeddings = self.positional_embedding.forward(
+            Tensor::arange(0..seq_len as i64, device)
+                .unsqueeze()
+                .repeat(&[batch_size, 0]),
         );
-        let query_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
-        let key_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
-        let value_config = nn::LinearConfig::new(d_in, d_out).with_bias(qkv_bias);
 
-        let dropout = nn::DropoutConfig { prob: 0.2 }.init();
+        let x = token_embeddings + positional_embeddings;
 
-        let out_proj = nn::LinearConfig::new(d_in, d_out).init(device);
-
-        Self {
-            d_out,
-            n_heads: num_heads,
-            head_dim: d_out / num_heads,
-            w_query: query_config.init(device),
-            w_key: key_config.init(device),
-            w_value: value_config.init(device),
-            dropout,
-            out_proj,
+        let mut x = self.dropout_embedding.forward(x);
+        for block in &self.transformer_blocks {
+            x = block.forward(x);
         }
-    }
 
-    pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
-        let [b, t, d_in] = input.dims();
+        let x = self.norm.forward(x);
 
-        let q = self.w_query.forward(input.clone());
-        let k = self.w_key.forward(input.clone());
-        let v = self.w_value.forward(input);
-
-        let q = q
-            .reshape([b, t, self.n_heads, self.head_dim])
-            .swap_dims(1, 2);
-        let k = k
-            .reshape([b, t, self.n_heads, self.head_dim])
-            .swap_dims(1, 2);
-        let v = v
-            .reshape([b, t, self.n_heads, self.head_dim])
-            .swap_dims(1, 2);
-
-        let attn = q.matmul(k.transpose()); // [b, num_heads, t, t]
-
-        // tril_mask always produces shapes [1, ..., N, N] regardless of additional dims we pass,
-        // so we broadcast manually for dims 0 and 1.
-        let mask: Tensor<B, 2, Bool> = Tensor::tril_mask([t, t], 0, &attn.device());
-        let mask = mask.unsqueeze::<3>().unsqueeze::<4>().repeat(&[b, self.n_heads, 0, 0]);
-        let attn_masked = attn.mask_fill(mask, f64::NEG_INFINITY);
-
-        let attn_scaled = softmax(attn_masked / (d_in as f64).sqrt(), 3);
-        let attn_scaled = self.dropout.forward(attn_scaled);
-
-        let context_vec = attn_scaled.matmul(v).swap_dims(1, 2);
-        let context_vec = context_vec.reshape([b, t, self.d_out]);
-        self.out_proj.forward(context_vec)
+        self.out.forward(x)
     }
 }
