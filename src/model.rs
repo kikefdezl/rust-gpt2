@@ -36,11 +36,10 @@ impl GptConfig124M {
 
         let dropout_embedding = nn::DropoutConfig { prob: 0.2 }.init();
 
-        let transformer_blocks: Vec<nn::Linear<B>> = (0..12)
-            .map(|_| nn::LinearConfig::new(self.embedding_dim, self.embedding_dim).init(device))
-            .collect();
+        let transformer_blocks: Vec<DummyTransformerBlock> =
+            (0..12).map(|_| DummyTransformerBlock::new()).collect();
 
-        let norm = nn::LinearConfig::new(self.embedding_dim, self.embedding_dim).init(device);
+        let norm = DummyLayerNorm::new();
 
         let out = nn::LinearConfig::new(self.embedding_dim, self.vocab_size)
             .with_bias(false)
@@ -62,8 +61,8 @@ pub struct DummyGPTModel<B: Backend> {
     token_embedding: nn::Embedding<B>,
     positional_embedding: nn::Embedding<B>,
     dropout_embedding: nn::Dropout,
-    transformer_blocks: Vec<nn::Linear<B>>,
-    norm: nn::Linear<B>,
+    transformer_blocks: Vec<DummyTransformerBlock>,
+    norm: DummyLayerNorm,
     out: nn::Linear<B>,
 }
 
@@ -90,5 +89,29 @@ impl<B: Backend> DummyGPTModel<B> {
         let x = self.norm.forward(x);
 
         self.out.forward(x)
+    }
+}
+
+#[derive(Module, Debug, Clone)]
+struct DummyTransformerBlock {}
+
+impl DummyTransformerBlock {
+    fn new() -> DummyTransformerBlock {
+        DummyTransformerBlock {}
+    }
+    fn forward<B: Backend>(&self, x: Tensor<B, 3>) -> Tensor<B, 3> {
+        x
+    }
+}
+
+#[derive(Module, Debug, Clone)]
+struct DummyLayerNorm {}
+
+impl DummyLayerNorm {
+    fn new() -> DummyLayerNorm {
+        DummyLayerNorm {}
+    }
+    fn forward<B: Backend>(&self, x: Tensor<B, 3>) -> Tensor<B, 3> {
+        x
     }
 }
