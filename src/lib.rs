@@ -1,6 +1,6 @@
-pub mod tokenizer;
+pub mod attention;
+pub mod batcher;
 pub mod config;
 pub mod dataset;
-pub mod batcher;
 pub mod model;
-pub mod attention;
+pub mod tokenizer;
