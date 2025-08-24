@@ -1,4 +1,4 @@
-use burn::module::Module;
+use burn::module::{Module, Param};
 use burn::nn;
 use burn::prelude::*;
 use burn::tensor::backend::Backend;
@@ -36,10 +36,11 @@ impl GptConfig124M {
 
         let dropout_embedding = nn::DropoutConfig { prob: 0.2 }.init();
 
-        let transformer_blocks: Vec<DummyTransformerBlock> =
-            (0..12).map(|_| DummyTransformerBlock::new()).collect();
+        let transformer_blocks: Vec<DummyTransformerBlock> = (0..self.n_heads)
+            .map(|_| DummyTransformerBlock::new())
+            .collect();
 
-        let norm = DummyLayerNorm::new();
+        let norm = DummyLayerNorm::new(self.embedding_dim, device);
 
         let out = nn::LinearConfig::new(self.embedding_dim, self.vocab_size)
             .with_bias(false)
@@ -62,7 +63,7 @@ pub struct DummyGPTModel<B: Backend> {
     positional_embedding: nn::Embedding<B>,
     dropout_embedding: nn::Dropout,
     transformer_blocks: Vec<DummyTransformerBlock>,
-    norm: DummyLayerNorm,
+    norm: DummyLayerNorm<B>,
     out: nn::Linear<B>,
 }
 
@@ -88,6 +89,9 @@ impl<B: Backend> DummyGPTModel<B> {
 
         let x = self.norm.forward(x);
 
+        println!("x");
+        println!("{}", &x);
+
         self.out.forward(x)
     }
 }
@@ -104,14 +108,24 @@ impl DummyTransformerBlock {
     }
 }
 
-#[derive(Module, Debug, Clone)]
-struct DummyLayerNorm {}
+#[derive(Module, Debug)]
+struct DummyLayerNorm<B: Backend> {
+    eps: f32,
+    scale: Param<Tensor<B, 3>>,
+    shift: Param<Tensor<B, 3>>,
+}
 
-impl DummyLayerNorm {
-    fn new() -> DummyLayerNorm {
-        DummyLayerNorm {}
+impl<B: Backend> DummyLayerNorm<B> {
+    fn new(embedding_dim: usize, device: &B::Device) -> DummyLayerNorm<B> {
+        let eps = 1e-5;
+        let scale = Param::from_tensor(Tensor::ones([1, 1, embedding_dim], device));
+        let shift = Param::from_tensor(Tensor::zeros([1, 1, embedding_dim], device));
+        DummyLayerNorm { eps, scale, shift }
     }
-    fn forward<B: Backend>(&self, x: Tensor<B, 3>) -> Tensor<B, 3> {
-        x
+
+    fn forward(&self, x: Tensor<B, 3>) -> Tensor<B, 3> {
+        let (var, mean) = x.clone().var_bias(dim);
+        let norm_x: Tensor<B, 3> = (x - mean) / (var + self.eps).sqrt();
+        self.scale.val().mul(norm_x).add(self.shift.val())
     }
 }
