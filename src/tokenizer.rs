@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 
+use burn::prelude::*;
 use regex::Regex;
+use tiktoken_rs::{CoreBPE, r50k_base};
 
 pub const END_OF_TEXT_TOKEN: &str = "<|endoftext|>";
 const UNKNOWN_TOKEN: &str = "<|unk|>";
@@ -87,4 +89,21 @@ impl SimpleTokenizer {
         let re = Regex::new(r#"\s+([,.?!"()'])"#).unwrap();
         re.replace_all(&text, "$1").to_string()
     }
+}
+
+pub fn text_to_token_ids<B: Backend>(
+    text: &str,
+    tokenizer: &CoreBPE,
+    device: &B::Device,
+) -> Tensor<B, 1, Int> {
+    let token_ids = tokenizer.encode_ordinary(text);
+    let length = token_ids.len();
+    let tensor_data = TensorData::new(token_ids, vec![length]);
+    Tensor::from_data(tensor_data, device)
+}
+
+pub fn token_ids_to_text<B: Backend>(token_ids: Tensor<B, 1, Int>, tokenizer: &CoreBPE) -> String {
+    let ids: Vec<i64> = token_ids.into_data().into_vec().unwrap_or_default();
+    let ids_casted: Vec<u32> = ids.into_iter().map(|x| x as u32).collect();
+    tokenizer.decode(ids_casted).unwrap_or(String::from(""))
 }

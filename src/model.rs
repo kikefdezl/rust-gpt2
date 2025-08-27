@@ -1,6 +1,7 @@
 use std::f32::consts::PI;
 
 use super::attention::MultiHeadAttention;
+use burn::config::Config;
 use burn::module::{Module, Param};
 use burn::nn::{self, Dropout};
 use burn::prelude::*;
@@ -72,6 +73,11 @@ impl GptConfig124M {
             norm,
             linear_out: out,
         }
+    }
+
+    pub fn with_context_len(mut self, ctx_len: usize) -> Self {
+        self.context_length = ctx_len;
+        self
     }
 }
 
