@@ -92,6 +92,7 @@ pub struct GPTModel<B: Backend> {
 }
 
 impl<B: Backend> GPTModel<B> {
+    /// in_idx is a tensor of shape [BatchSize, ContextLen]
     pub fn forward(&self, in_idx: Tensor<B, 2, Int>) -> Tensor<B, 3> {
         let [batch_size, seq_len] = in_idx.dims();
         let device = &in_idx.device();

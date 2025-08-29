@@ -1,36 +1,27 @@
-use burn::backend::Candle;
 use burn::backend::candle::CandleDevice;
-use burn::data::dataloader::{DataLoader, DataLoaderBuilder};
+use burn::backend::{Autodiff, Candle};
 use burn::prelude::*;
 use llm_from_scratch::model::GptConfig124M;
-use std::sync::Arc;
 use tiktoken_rs::r50k_base;
 
-use std::fs::read_to_string;
-
-use llm_from_scratch::batcher::{GPTBatch, GPTBatcher};
-use llm_from_scratch::config;
-use llm_from_scratch::dataset::GPTDatasetV1;
 use llm_from_scratch::model::GPTModel;
 use llm_from_scratch::tokenizer::{text_to_token_ids, token_ids_to_text};
-
-const STRIDE_LEN: usize = 4;
-const CONTEXT_LEN: usize = 10;
-const BATCH_SIZE: usize = 2;
-const NUM_WORKERS: usize = 4;
+use llm_from_scratch::train::{TrainConfig, train};
 
 fn main() {
-    type Backend = Candle;
+    type Backend = Autodiff<Candle>;
     let device = CandleDevice::Cpu;
 
-    sandbox::<Backend>(&device);
-    sandbox_2::<Backend>(&device);
+    // sandbox::<Backend>(&device);
+
+    let train_config = TrainConfig::default();
+    train::<Backend>(&train_config, &device);
 }
 
-fn sandbox<B: Backend>(device: &B::Device) {
+fn _sandbox<B: Backend>(device: &B::Device) {
     let tokenizer = r50k_base().unwrap();
 
-    let config = GptConfig124M::default().with_context_len(256);
+    let config = GptConfig124M::default().with_context_len(3);
     let model: GPTModel<B> = config.init(device);
 
     let text = String::from("Hello I am ");
@@ -65,26 +56,4 @@ fn generate_text_simple<B: Backend>(
         token_ids = Tensor::cat(vec![token_ids, idx_next.unsqueeze()], 1);
     }
     token_ids
-}
-
-fn sandbox_2<B: Backend>(device: &B::Device) {
-    let text = read_to_string(config::RAW_DATA_FILE).unwrap();
-
-    let tokenizer = r50k_base().unwrap();
-    let token_ids = tokenizer.encode_ordinary(&text);
-
-    let dataset = GPTDatasetV1::new(&token_ids, CONTEXT_LEN, STRIDE_LEN);
-    let dataloader: Arc<dyn DataLoader<B, GPTBatch<B>>> = DataLoaderBuilder::new(GPTBatcher)
-        .batch_size(BATCH_SIZE)
-        .num_workers(NUM_WORKERS)
-        .build(dataset);
-
-    let config = GptConfig124M::default();
-    let model: GPTModel<B> = config.init(device);
-
-    let first = dataloader.iter().next().unwrap().inputs;
-
-    // println!("{}", &first);
-    let out = model.forward(first);
-    // println!("{}", out);
 }
