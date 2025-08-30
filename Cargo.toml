@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-burn = { version = "0.18.0", features = ["dataset", "candle", "autodiff"] }
+burn = { version = "0.18.0", features = ["dataset", "candle", "autodiff", "train"] }
 regex = "1.11.1"
 tiktoken-rs = "0.7.0"

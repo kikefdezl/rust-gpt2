@@ -7,35 +7,29 @@ use burn::nn::{self, Dropout};
 use burn::prelude::*;
 use burn::tensor::backend::Backend;
 
-pub struct GptConfig124M {
+#[derive(Config)]
+pub struct GptConfig {
+    #[config(default = 50257)]
     pub vocab_size: usize,
+    #[config(default = 1024)]
     pub context_length: usize,
+    #[config(default = 768)]
     pub embedding_dim: usize,
+    #[config(default = 12)]
     pub n_heads: usize,
+    #[config(default = 12)]
     pub n_layers: usize,
+    #[config(default = 0.1)]
     pub embedding_drop_rate: f64,
+    #[config(default = 0.1)]
     pub attention_drop_rate: f64,
+    #[config(default = 0.1)]
     pub shortcut_layer_drop_rate: f64,
+    #[config(default = false)]
     pub qkv_bias: bool,
 }
 
-impl Default for GptConfig124M {
-    fn default() -> Self {
-        Self {
-            vocab_size: 50257,
-            context_length: 1024,
-            embedding_dim: 768,
-            n_heads: 12,
-            n_layers: 12,
-            embedding_drop_rate: 0.1,
-            attention_drop_rate: 0.1,
-            shortcut_layer_drop_rate: 0.1,
-            qkv_bias: false,
-        }
-    }
-}
-
-impl GptConfig124M {
+impl GptConfig {
     pub fn init<B: Backend>(&self, device: &B::Device) -> GPTModel<B> {
         let token_embedding: nn::Embedding<B> =
             nn::EmbeddingConfig::new(self.vocab_size, self.embedding_dim).init(device);
@@ -73,11 +67,6 @@ impl GptConfig124M {
             norm,
             linear_out: out,
         }
-    }
-
-    pub fn with_context_len(mut self, ctx_len: usize) -> Self {
-        self.context_length = ctx_len;
-        self
     }
 }
 

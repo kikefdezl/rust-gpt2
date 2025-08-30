@@ -1,7 +1,7 @@
 use burn::backend::candle::CandleDevice;
 use burn::backend::{Autodiff, Candle};
 use burn::prelude::*;
-use llm_from_scratch::model::GptConfig124M;
+use llm_from_scratch::model::GptConfig;
 use tiktoken_rs::r50k_base;
 
 use llm_from_scratch::model::GPTModel;
@@ -14,14 +14,16 @@ fn main() {
 
     // sandbox::<Backend>(&device);
 
-    let train_config = TrainConfig::default();
+    let context_length = 256;
+    let model_config = GptConfig::new().with_context_length(context_length);
+    let train_config = TrainConfig::new(model_config).with_stride_length(context_length);
     train::<Backend>(&train_config, &device);
 }
 
 fn _sandbox<B: Backend>(device: &B::Device) {
     let tokenizer = r50k_base().unwrap();
 
-    let config = GptConfig124M::default().with_context_len(3);
+    let config = GptConfig::new().with_context_length(6);
     let model: GPTModel<B> = config.init(device);
 
     let text = String::from("Hello I am ");
