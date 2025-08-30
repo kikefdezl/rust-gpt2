@@ -7,7 +7,7 @@ pub struct GPTItem {
 }
 
 pub struct GPTDatasetV1 {
-    items: Vec<GPTItem>,
+    pub items: Vec<GPTItem>,
 }
 
 impl GPTDatasetV1 {
@@ -39,5 +39,14 @@ impl Dataset<GPTItem> for GPTDatasetV1 {
 
     fn len(&self) -> usize {
         self.items.len()
+    }
+}
+
+impl GPTDatasetV1 {
+    pub fn split_to_train_val(mut self, val_ratio: f32) -> (Self, Self) {
+        let n_elements = self.items.len();
+        let idx_split = n_elements * (100 - ((val_ratio * 100.0) as usize)) / 100;
+        let val_items = self.items.split_off(idx_split);
+        (self, GPTDatasetV1 { items: val_items })
     }
 }

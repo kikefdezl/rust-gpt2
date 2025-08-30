@@ -1,75 +1,100 @@
 use burn::data::dataloader::{DataLoader, DataLoaderBuilder};
 use burn::nn::loss::CrossEntropyLossConfig;
+use burn::optim::adaptor::OptimizerAdaptor;
+use burn::optim::{Adam, AdamConfig};
 use burn::prelude::*;
+use burn::record::CompactRecorder;
 use burn::tensor::backend::AutodiffBackend;
-use burn::train::{ClassificationOutput, TrainOutput, TrainStep, ValidStep};
+use burn::tensor::cast::ToElement;
+use burn::train::metric::{AccuracyMetric, LossMetric};
+use burn::train::{ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep};
 use std::sync::Arc;
 use tiktoken_rs::r50k_base;
 
 use std::fs::read_to_string;
 
 use crate::batcher::{GPTBatch, GPTBatcher};
-use crate::config;
 use crate::dataset::GPTDatasetV1;
 use crate::model::GPTModel;
 use crate::model::GptConfig;
-use crate::tokenizer::token_ids_to_text;
 
 #[derive(Config)]
 pub struct TrainConfig {
     model: GptConfig,
-    #[config(default = 8)]
+    optimizer: AdamConfig,
+    #[config(default = 2)]
     batch_size: usize,
     #[config(default = 1.0e-4)]
     learning_rate: f64,
     #[config(default = 10)]
     num_epochs: usize,
-    #[config(default = 8)]
+    #[config(default = 4)]
     num_workers: usize,
+    #[config(default = 42)]
+    seed: u64,
     #[config(default = 6)]
     stride_length: usize,
     #[config(default = 0.1)]
     val_ratio: f32,
 }
 
-pub fn train<B: AutodiffBackend>(config: &TrainConfig, device: &B::Device) {
-    let text = read_to_string(config::RAW_DATA_FILE).unwrap();
+pub fn train<B: AutodiffBackend>(
+    dataset: &str,
+    workdir: &str,
+    config: &TrainConfig,
+    device: &B::Device,
+) {
+    config
+        .save(format!("{workdir}/config.json"))
+        .expect("Config should be saved successfully");
+
+    let text = read_to_string(dataset).unwrap();
 
     let tokenizer = r50k_base().unwrap();
     let token_ids = tokenizer.encode_ordinary(&text);
 
-    let model: GPTModel<B> = config.model.init(device);
-
-    let (train_ids, val_ids) = split_to_train_val(token_ids, config.val_ratio);
-
-    let train_dataset = GPTDatasetV1::new(
-        &train_ids,
+    let dataset = GPTDatasetV1::new(
+        &token_ids,
         config.model.context_length,
         config.stride_length,
     );
-    let val_dataset =
-        GPTDatasetV1::new(&val_ids, config.model.context_length, config.stride_length);
+    let (train_dataset, val_dataset) = dataset.split_to_train_val(config.val_ratio);
 
     let train_dataloader: Arc<dyn DataLoader<B, GPTBatch<B>>> = DataLoaderBuilder::new(GPTBatcher)
-        .batch_size(config.batch_size)
         .num_workers(config.num_workers)
+        .batch_size(config.batch_size)
+        .shuffle(config.seed)
         .build(train_dataset);
     let val_dataloader: Arc<dyn DataLoader<B, GPTBatch<B>>> = DataLoaderBuilder::new(GPTBatcher)
-        .batch_size(config.batch_size)
         .num_workers(config.num_workers)
+        .batch_size(config.batch_size)
+        .shuffle(config.seed)
         .build(val_dataset);
 
-    for batch in train_dataloader.iter() {
-        let out = model.forward_classification(batch.inputs, batch.targets);
-        // println!("loss {:?}", out);
-    }
-}
+    let model: GPTModel<B> = config.model.init(device);
 
-fn split_to_train_val<T>(mut vec: Vec<T>, val_ratio: f32) -> (Vec<T>, Vec<T>) {
-    let n_elements = vec.len();
-    let idx_split = n_elements * (100 - ((val_ratio * 100.0) as usize)) / 100;
-    let val = vec.split_off(idx_split);
-    (vec, val)
+    let learner = LearnerBuilder::<
+        B,
+        ClassificationOutput<B>,
+        ClassificationOutput<B>,
+        GPTModel<B>,
+        OptimizerAdaptor<Adam, GPTModel<B>, B>,
+        f64,
+    >::new(workdir)
+    .metric_train_numeric(AccuracyMetric::new())
+    .metric_valid_numeric(AccuracyMetric::new())
+    .metric_train_numeric(LossMetric::new())
+    .metric_valid_numeric(LossMetric::new())
+    .with_file_checkpointer(CompactRecorder::new())
+    .num_epochs(config.num_epochs)
+    .summary()
+    .build(model, config.optimizer.init(), config.learning_rate);
+
+    let model_trained = learner.fit(train_dataloader, val_dataloader);
+
+    model_trained
+        .save_file(format!("{workdir}/model"), &CompactRecorder::new())
+        .expect("Trained model should be saved successfully");
 }
 
 impl<B: Backend> GPTModel<B> {
@@ -103,5 +128,3 @@ impl<B: Backend> ValidStep<GPTBatch<B>, ClassificationOutput<B>> for GPTModel<B>
         self.forward_classification(batch.inputs, batch.targets)
     }
 }
-
-// fn optimize<B, O>(self, optim: &mut O, lr: f64, grads: GradientsParams) -> Self
