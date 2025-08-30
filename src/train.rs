@@ -1,14 +1,11 @@
-use burn::data::dataloader::{DataLoader, DataLoaderBuilder};
+use burn::data::dataloader::DataLoaderBuilder;
 use burn::nn::loss::CrossEntropyLossConfig;
-use burn::optim::adaptor::OptimizerAdaptor;
-use burn::optim::{Adam, AdamConfig};
+use burn::optim::AdamWConfig;
 use burn::prelude::*;
 use burn::record::CompactRecorder;
 use burn::tensor::backend::AutodiffBackend;
-use burn::tensor::cast::ToElement;
 use burn::train::metric::{AccuracyMetric, LossMetric};
 use burn::train::{ClassificationOutput, LearnerBuilder, TrainOutput, TrainStep, ValidStep};
-use std::sync::Arc;
 use tiktoken_rs::r50k_base;
 
 use std::fs::read_to_string;
@@ -21,18 +18,18 @@ use crate::model::GptConfig;
 #[derive(Config)]
 pub struct TrainConfig {
     model: GptConfig,
-    optimizer: AdamConfig,
+    optimizer: AdamWConfig,
     #[config(default = 2)]
     batch_size: usize,
     #[config(default = 1.0e-4)]
     learning_rate: f64,
     #[config(default = 10)]
     num_epochs: usize,
-    #[config(default = 4)]
+    #[config(default = 2)]
     num_workers: usize,
     #[config(default = 42)]
     seed: u64,
-    #[config(default = 6)]
+    #[config(default = 256)]
     stride_length: usize,
     #[config(default = 0.1)]
     val_ratio: f32,
@@ -60,12 +57,12 @@ pub fn train<B: AutodiffBackend>(
     );
     let (train_dataset, val_dataset) = dataset.split_to_train_val(config.val_ratio);
 
-    let train_dataloader: Arc<dyn DataLoader<B, GPTBatch<B>>> = DataLoaderBuilder::new(GPTBatcher)
+    let train_dataloader = DataLoaderBuilder::new(GPTBatcher)
         .num_workers(config.num_workers)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .build(train_dataset);
-    let val_dataloader: Arc<dyn DataLoader<B, GPTBatch<B>>> = DataLoaderBuilder::new(GPTBatcher)
+    let val_dataloader = DataLoaderBuilder::new(GPTBatcher)
         .num_workers(config.num_workers)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
@@ -73,22 +70,15 @@ pub fn train<B: AutodiffBackend>(
 
     let model: GPTModel<B> = config.model.init(device);
 
-    let learner = LearnerBuilder::<
-        B,
-        ClassificationOutput<B>,
-        ClassificationOutput<B>,
-        GPTModel<B>,
-        OptimizerAdaptor<Adam, GPTModel<B>, B>,
-        f64,
-    >::new(workdir)
-    .metric_train_numeric(AccuracyMetric::new())
-    .metric_valid_numeric(AccuracyMetric::new())
-    .metric_train_numeric(LossMetric::new())
-    .metric_valid_numeric(LossMetric::new())
-    .with_file_checkpointer(CompactRecorder::new())
-    .num_epochs(config.num_epochs)
-    .summary()
-    .build(model, config.optimizer.init(), config.learning_rate);
+    let learner = LearnerBuilder::new(workdir)
+        .metric_train_numeric(AccuracyMetric::new())
+        .metric_valid_numeric(AccuracyMetric::new())
+        .metric_train_numeric(LossMetric::new())
+        .metric_valid_numeric(LossMetric::new())
+        .with_file_checkpointer(CompactRecorder::new())
+        .num_epochs(config.num_epochs)
+        .summary()
+        .build(model, config.optimizer.init(), config.learning_rate);
 
     let model_trained = learner.fit(train_dataloader, val_dataloader);
 

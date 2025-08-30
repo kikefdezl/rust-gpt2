@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use burn::prelude::*;
 use regex::Regex;
-use tiktoken_rs::{CoreBPE, r50k_base};
+use tiktoken_rs::CoreBPE;
 
 pub const END_OF_TEXT_TOKEN: &str = "<|endoftext|>";
 const UNKNOWN_TOKEN: &str = "<|unk|>";

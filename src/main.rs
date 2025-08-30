@@ -1,27 +1,26 @@
-use burn::backend::candle::CandleDevice;
-use burn::backend::{Autodiff, Candle};
-use burn::optim::AdamConfig;
+use burn::backend::Autodiff;
+use burn::backend::candle::{Candle, CandleDevice};
+use burn::optim::AdamWConfig;
 use burn::prelude::*;
-use llm_from_scratch::model::GptConfig;
 use tiktoken_rs::r50k_base;
 
-use llm_from_scratch::model::GPTModel;
+use llm_from_scratch::model::{GPTModel, GptConfig};
 use llm_from_scratch::tokenizer::{text_to_token_ids, token_ids_to_text};
 use llm_from_scratch::train::{TrainConfig, train};
 
 const RAW_DATA_FILE: &str = "data/raw/the-verdict.txt";
+const TRAINING_WORKDIR: &str = "runs/";
 
 fn main() {
-    type Backend = Autodiff<Candle>;
+    type Backend = Candle;
+    type AutodiffBackend = Autodiff<Backend>;
     let device = CandleDevice::Cpu;
-
-    // sandbox::<Backend>(&device);
 
     let context_length = 256;
     let model_config = GptConfig::new().with_context_length(context_length);
     let train_config =
-        TrainConfig::new(model_config, AdamConfig::new()).with_stride_length(context_length);
-    train::<Backend>(RAW_DATA_FILE, "artifacts/", &train_config, &device);
+        TrainConfig::new(model_config, AdamWConfig::new()).with_stride_length(context_length);
+    train::<AutodiffBackend>(RAW_DATA_FILE, TRAINING_WORKDIR, &train_config, &device);
 }
 
 fn _sandbox<B: Backend>(device: &B::Device) {
