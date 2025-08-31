@@ -105,5 +105,6 @@ pub fn text_to_token_ids<B: Backend>(
 pub fn token_ids_to_text<B: Backend>(token_ids: Tensor<B, 1, Int>, tokenizer: &CoreBPE) -> String {
     let ids: Vec<i64> = token_ids.into_data().into_vec().unwrap_or_default();
     let ids_casted: Vec<u32> = ids.into_iter().map(|x| x as u32).collect();
-    tokenizer.decode(ids_casted).unwrap_or(String::from(""))
+    // tokenizer.decode(ids_casted).unwrap_or(String::from(""))
+    tokenizer.decode(ids_casted).unwrap()
 }
