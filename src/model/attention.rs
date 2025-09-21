@@ -112,7 +112,7 @@ impl<B: Backend> MultiHeadAttention<B> {
 
         let dropout = nn::DropoutConfig { prob: drop_rate }.init();
 
-        let out_proj = nn::LinearConfig::new(d_in, d_out).init(device);
+        let out_proj = nn::LinearConfig::new(d_out, d_out).init(device);
 
         Self {
             d_out,
@@ -127,7 +127,7 @@ impl<B: Backend> MultiHeadAttention<B> {
     }
 
     pub fn forward(&self, input: Tensor<B, 3>) -> Tensor<B, 3> {
-        let [b, t, d_in] = input.dims();
+        let [b, t, _] = input.dims();
 
         let q = self.w_query.forward(input.clone());
         let k = self.w_key.forward(input.clone());
@@ -148,14 +148,11 @@ impl<B: Backend> MultiHeadAttention<B> {
         // tril_mask always produces shapes [1, ..., N, N] regardless of additional dims we pass,
         // so we broadcast manually for dims 0 and 1.
         let mask: Tensor<B, 2, Bool> = Tensor::tril_mask([t, t], 0, &attn.device());
-        let mask = mask
-            .unsqueeze::<3>()
-            .unsqueeze::<4>()
-            .repeat(&[b, self.n_heads, 0, 0]);
+        let mask = mask.unsqueeze::<4>().repeat(&[b, self.n_heads, 0, 0]);
 
         let attn_masked = attn.mask_fill(mask, f64::NEG_INFINITY);
 
-        let attn_scaled = softmax(attn_masked / (d_in as f64).sqrt(), 3);
+        let attn_scaled = softmax(attn_masked / (self.head_dim as f64).sqrt(), 3);
         let attn_scaled = self.dropout.forward(attn_scaled);
 
         let context_vec = attn_scaled.matmul(v).swap_dims(1, 2);

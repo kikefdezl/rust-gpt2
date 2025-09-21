@@ -21,9 +21,9 @@ fn main() {
 fn _sandbox<B: Backend>(device: &B::Device) {
     let model_config = Gpt2Config::new();
     let model: Gpt2<B> = model_config
-        .init(device)
-        .load_file(MODEL_FILE, &CompactRecorder::new(), device)
-        .expect("Model should be loaded from the file correctly");
+        .init(device);
+        // .load_file(MODEL_FILE, &CompactRecorder::new(), device)
+        // .expect("Model should be loaded from the file correctly");
 
     let tokenizer = r50k_base().unwrap();
 

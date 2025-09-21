@@ -1,9 +1,7 @@
-use std::f32::consts::PI;
-
 use super::attention::MultiHeadAttention;
 use burn::config::Config;
 use burn::module::{Module, Param};
-use burn::nn::{self, Dropout};
+use burn::nn::{self, Dropout, Gelu};
 use burn::prelude::*;
 use burn::tensor::backend::Backend;
 
@@ -25,7 +23,7 @@ pub struct Gpt2Config {
     pub attention_drop_rate: f64,
     #[config(default = 0.1)]
     pub shortcut_layer_drop_rate: f64,
-    #[config(default = false)]
+    #[config(default = true)]
     pub qkv_bias: bool,
 }
 
@@ -48,6 +46,7 @@ impl Gpt2Config {
                     self.n_heads,
                     self.attention_drop_rate,
                     self.shortcut_layer_drop_rate,
+                    self.qkv_bias,
                     device,
                 )
             })
@@ -122,6 +121,7 @@ impl<B: Backend> TransformerBlock<B> {
         num_heads: usize,
         attention_drop_rate: f64,
         shortcut_drop_rate: f64,
+        qkv_bias: bool,
         device: &B::Device,
     ) -> TransformerBlock<B> {
         let norm1 = LayerNorm::new(embedding_dim, device);
@@ -130,7 +130,7 @@ impl<B: Backend> TransformerBlock<B> {
             embedding_dim,
             num_heads,
             attention_drop_rate,
-            false,
+            qkv_bias,
             device,
         );
         let dropout = nn::DropoutConfig {
@@ -165,28 +165,31 @@ impl<B: Backend> TransformerBlock<B> {
 #[derive(Module, Debug)]
 struct LayerNorm<B: Backend> {
     eps: f32,
-    scale: Param<Tensor<B, 3>>,
-    shift: Param<Tensor<B, 3>>,
+    scale: Param<Tensor<B, 1>>,
+    shift: Param<Tensor<B, 1>>,
 }
 
 impl<B: Backend> LayerNorm<B> {
     fn new(embedding_dim: usize, device: &B::Device) -> LayerNorm<B> {
         let eps = 1e-5;
-        let scale = Param::from_tensor(Tensor::ones([1, 1, embedding_dim], device));
-        let shift = Param::from_tensor(Tensor::zeros([1, 1, embedding_dim], device));
+        let scale = Param::from_tensor(Tensor::ones([embedding_dim], device));
+        let shift = Param::from_tensor(Tensor::zeros([embedding_dim], device));
         LayerNorm { eps, scale, shift }
     }
 
     fn forward(&self, x: Tensor<B, 3>) -> Tensor<B, 3> {
         let (var, mean) = x.clone().var_mean(2);
         let norm_x: Tensor<B, 3> = (x - mean) / (var + self.eps).sqrt();
-        self.scale.val().mul(norm_x).add(self.shift.val())
+        let scale = self.scale.val().unsqueeze::<2>().unsqueeze();
+        let shift = self.shift.val().unsqueeze::<2>().unsqueeze();
+        scale.mul(norm_x).add(shift)
     }
 }
 
 #[derive(Module, Debug)]
 struct FeedForward<B: Backend> {
     pre: nn::Linear<B>,
+    gelu: Gelu,
     post: nn::Linear<B>,
 }
 
@@ -194,24 +197,13 @@ impl<B: Backend> FeedForward<B> {
     fn new(embedding_dim: usize, device: &B::Device) -> FeedForward<B> {
         FeedForward {
             pre: nn::LinearConfig::new(embedding_dim, 4 * embedding_dim).init(device),
+            gelu: Gelu::new(),
             post: nn::LinearConfig::new(4 * embedding_dim, embedding_dim).init(device),
         }
     }
     fn forward<const D: usize>(&self, x: Tensor<B, D>) -> Tensor<B, D> {
         let x = self.pre.forward(x);
-        let x = gelu(x);
+        let x = self.gelu.forward(x);
         self.post.forward(x)
     }
-}
-
-/// 0.5 * x * (1 + tanh(sqrt(2.0 / pi) * (x + 0.044715 * x^3))))
-fn gelu<B: Backend, const D: usize>(x: Tensor<B, D>) -> Tensor<B, D> {
-    x.clone().mul_scalar(0.5).mul(
-        (x.clone()
-            .add_scalar(0.044715)
-            .mul(x.powf_scalar(3.0))
-            .mul_scalar((2.0 / PI).sqrt()))
-        .tanh()
-        .add_scalar(1),
-    )
 }

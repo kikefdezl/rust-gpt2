@@ -1,34 +1,40 @@
-use burn::backend::candle::{Candle, CandleDevice};
+// use burn::backend::candle::{Candle, CandleDevice};
+use burn::backend::libtorch::{LibTorch, LibTorchDevice};
 use burn::prelude::*;
+use clap::Parser;
 use rust_gpt2::utils::multinomial_single;
 use std::path::PathBuf;
-use tiktoken_rs::r50k_base;
+use tiktoken_rs::{CoreBPE, r50k_base};
 
 use rust_gpt2::load::load_gpt2;
 use rust_gpt2::model::gpt2::Gpt2;
 use rust_gpt2::tokenization::{text_to_token_ids, token_ids_to_text};
 
-const WEIGHTS_FILE: &str = "../gpt2/gpt2.safetensors";
+#[derive(Parser)]
+struct Args {
+    #[arg(long)]
+    input: String,
+}
+
+const WEIGHTS_FILE: &str = "./gpt2/gpt2.safetensors";
 
 fn main() {
-    type Backend = Candle;
-    let device = CandleDevice::Cpu;
+    let args = Args::parse();
+
+    type Backend = LibTorch;
+    let device = LibTorchDevice::Cpu;
+
+    let gpt2: Gpt2<Backend> = load_gpt2(PathBuf::from(WEIGHTS_FILE), &device);
 
     let tokenizer = r50k_base().unwrap();
-    let gpt2 = load_gpt2(PathBuf::from(WEIGHTS_FILE), &device);
 
-    let text = String::from("Every effort moves you ");
-    let token_ids: Tensor<Backend, 2, Int> =
-        text_to_token_ids(&text, &tokenizer, &device).unsqueeze();
-    let idx = generate(&gpt2, token_ids, 25, 256, 0.8, 5);
-    let decoded = token_ids_to_text(idx.squeeze(0), &tokenizer);
-
-    print!("{decoded}");
+    generate(&gpt2, &args.input, &tokenizer, 25, 256, 0.8, 5);
 }
 
 fn generate<B: Backend>(
     model: &Gpt2<B>,
-    mut token_ids: Tensor<B, 2, Int>,
+    text: &str,
+    tokenizer: &CoreBPE,
     max_new_tokens: usize,
     context_size: usize,
     temperature: f64,
@@ -36,6 +42,11 @@ fn generate<B: Backend>(
 ) -> Tensor<B, 2, Int> {
     assert!(temperature >= 0.0);
     assert!(top_k >= 1);
+
+    let mut token_ids: Tensor<B, 2, Int> =
+        text_to_token_ids(text, tokenizer, &model.devices()[0]).unsqueeze();
+
+    print!("{}", text);
     for _ in 0..max_new_tokens {
         let last_idx = token_ids.dims()[1];
         let first_idx = last_idx.saturating_sub(context_size);
@@ -63,8 +74,10 @@ fn generate<B: Backend>(
         let probabilities = burn::tensor::activation::softmax(last_logits_masked, 0);
         let idx_next: Tensor<B, 1, Int> = multinomial_single(probabilities);
 
-        token_ids = Tensor::cat(vec![token_ids, idx_next.unsqueeze()], 1);
+        token_ids = Tensor::cat(vec![token_ids, idx_next.clone().unsqueeze()], 1);
+
+        let decoded_next = token_ids_to_text(idx_next, tokenizer);
+        print!("{}", decoded_next);
     }
-    println!("{}", token_ids);
     token_ids
 }

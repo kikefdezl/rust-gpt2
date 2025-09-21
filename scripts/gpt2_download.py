@@ -109,37 +109,6 @@ def download_file(url, destination, backup_url=None):
         print(f"An unexpected error occurred: {e}")
 
 
-# Alternative way using `requests`
-"""
-def download_file(url, destination):
-    # Send a GET request to download the file in streaming mode
-    response = requests.get(url, stream=True)
-
-    # Get the total file size from headers, defaulting to 0 if not present
-    file_size = int(response.headers.get("content-length", 0))
-
-    # Check if file exists and has the same size
-    if os.path.exists(destination):
-        file_size_local = os.path.getsize(destination)
-        if file_size == file_size_local:
-            print(f"File already exists and is up-to-date: {destination}")
-            return
-
-    # Define the block size for reading the file
-    block_size = 1024  # 1 Kilobyte
-
-    # Initialize the progress bar with total file size
-    progress_bar_description = url.split("/")[-1]  # Extract filename from URL
-    with tqdm(total=file_size, unit="iB", unit_scale=True, desc=progress_bar_description) as progress_bar:
-        # Open the destination file in binary write mode
-        with open(destination, "wb") as file:
-            # Iterate over the file data in chunks
-            for chunk in response.iter_content(block_size):
-                progress_bar.update(len(chunk))  # Update progress bar
-                file.write(chunk)  # Write the chunk to the file
-"""
-
-
 def load_gpt2_params_from_tf_ckpt(ckpt_path, settings):
     # Initialize parameters dictionary with empty blocks for each layer
     params = {"blocks": [{} for _ in range(settings["n_layer"])]}
@@ -197,7 +166,10 @@ def lists_to_dicts(obj: Any) -> Any:
     else:
         return obj
 
-def flatten_dict(d: dict[str, Any], parent_key: str = "", sep: str = ".") -> dict[str, Any]:
+
+def flatten_dict(
+    d: dict[str, Any], parent_key: str = "", sep: str = "."
+) -> dict[str, Any]:
     flat = {}
     for k, v in d.items():
         new_key = f"{parent_key}{sep}{k}" if parent_key else k
@@ -208,6 +180,38 @@ def flatten_dict(d: dict[str, Any], parent_key: str = "", sep: str = ".") -> dic
     return flat
 
 
+def split_qkv(d: dict[str, Any]):
+    """
+    K, Q, V weight matrices are merged in the official weights, so
+    we split them in 3.
+    """
+    new = {}
+    for k, v in d.items():
+        if k.endswith("attn.w"):
+            q_w, k_w, v_w = np.split(v, 3, axis=-1)
+            new[f"{k}_q"] = q_w
+            new[f"{k}_k"] = k_w
+            new[f"{k}_v"] = v_w
+        elif k.endswith("attn.b"):
+            q_b, k_b, v_b = np.split(v, 3, axis=-1)
+            new[f"{k}_q"] = q_b
+            new[f"{k}_k"] = k_b
+            new[f"{k}_v"] = v_b
+        else:
+            new[k] = v
+    return new
+
+
+def duplicate_wte(d: dict[str, Any]):
+    """
+    The weights are shared for the input and output, but Burn's mapper
+    doesn't support mapping the same weights to multiple layers,
+    so we explicitly duplicate these weights.
+    """
+    d["wte_out"] = d["wte"].T
+    return d
+
+
 if __name__ == "__main__":
     models_dir = "gpt2"
     settings, params = download_and_load_gpt2(model_size="124M", models_dir=models_dir)
@@ -215,4 +219,8 @@ if __name__ == "__main__":
 
     params = lists_to_dicts(params)
     params = flatten_dict(params)
+    params = split_qkv(params)
+    params = duplicate_wte(params)
+    for key in params.keys():
+        print(key)
     save_file(params, Path(models_dir) / "gpt2.safetensors")
