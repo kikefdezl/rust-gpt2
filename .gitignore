@@ -1,2 +1,11 @@
+#artifacts
 runs/
+gpt2/
+
+# python
+.venv/
+__pycache__/
+
+
+# rust
 /target

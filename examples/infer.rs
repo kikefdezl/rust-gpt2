@@ -1,40 +1,28 @@
-use burn::backend::Autodiff;
 use burn::backend::candle::{Candle, CandleDevice};
 use burn::prelude::*;
-use burn::record::CompactRecorder;
+use rust_gpt2::utils::multinomial_single;
+use std::path::PathBuf;
 use tiktoken_rs::r50k_base;
 
-use rust_gpt2::model::gpt2::{Gpt2, Gpt2Config};
+use rust_gpt2::load::load_gpt2;
+use rust_gpt2::model::gpt2::Gpt2;
 use rust_gpt2::tokenization::{text_to_token_ids, token_ids_to_text};
-use rust_gpt2::utils::multinomial_single;
 
-const MODEL_FILE: &str = "runs/model.mpk";
+const WEIGHTS_FILE: &str = "../gpt2/gpt2.safetensors";
 
 fn main() {
     type Backend = Candle;
-    type _AutodiffBackend = Autodiff<Backend>;
     let device = CandleDevice::Cpu;
 
-    _sandbox::<Backend>(&device);
-}
-
-fn _sandbox<B: Backend>(device: &B::Device) {
-    let model_config = Gpt2Config::new();
-    let model: Gpt2<B> = model_config
-        .init(device)
-        .load_file(MODEL_FILE, &CompactRecorder::new(), device)
-        .expect("Model should be loaded from the file correctly");
-
     let tokenizer = r50k_base().unwrap();
-
-    let config = Gpt2Config::new();
+    let gpt2 = load_gpt2(PathBuf::from(WEIGHTS_FILE), &device);
 
     let text = String::from("Every effort moves you ");
-    let token_ids: Tensor<B, 2, Int> = text_to_token_ids(&text, &tokenizer, device).unsqueeze();
-
-    let idx = generate(&model, token_ids, 25, config.context_length, 0.8, 5);
-
+    let token_ids: Tensor<Backend, 2, Int> =
+        text_to_token_ids(&text, &tokenizer, &device).unsqueeze();
+    let idx = generate(&gpt2, token_ids, 25, 256, 0.8, 5);
     let decoded = token_ids_to_text(idx.squeeze(0), &tokenizer);
+
     print!("{decoded}");
 }
 

@@ -3,8 +3,8 @@ use burn::backend::candle::{Candle, CandleDevice};
 use burn::optim::AdamWConfig;
 use std::fs::{create_dir, exists};
 
-use llm_from_scratch::model::GptConfig;
-use llm_from_scratch::train::{TrainConfig, train};
+use rust_gpt2::model::gpt2::Gpt2Config;
+use rust_gpt2::train::{TrainConfig, train};
 
 const RAW_DATA_FILE: &str = "data/raw/the-verdict.txt";
 const TRAINING_WORKDIR: &str = "runs/";
@@ -15,7 +15,7 @@ fn main() {
     let device = CandleDevice::Cpu;
 
     let context_length = 256;
-    let model_config = GptConfig::new().with_context_length(context_length);
+    let model_config = Gpt2Config::new().with_context_length(context_length);
     let train_config =
         TrainConfig::new(model_config, AdamWConfig::new()).with_stride_length(context_length);
 

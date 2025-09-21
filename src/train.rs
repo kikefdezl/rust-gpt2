@@ -10,14 +10,14 @@ use tiktoken_rs::r50k_base;
 
 use std::fs::read_to_string;
 
-use crate::batcher::{GPTBatch, GPTBatcher};
-use crate::dataset::GPTDatasetV1;
-use crate::model::GPTModel;
-use crate::model::GptConfig;
+use crate::data::batcher::{GptBatch, GptBatcher};
+use crate::data::dataset::GptDataset;
+use crate::model::gpt2::Gpt2;
+use crate::model::gpt2::Gpt2Config;
 
 #[derive(Config)]
 pub struct TrainConfig {
-    model: GptConfig,
+    model: Gpt2Config,
     optimizer: AdamWConfig,
     #[config(default = 2)]
     batch_size: usize,
@@ -50,25 +50,25 @@ pub fn train<B: AutodiffBackend>(
     let tokenizer = r50k_base().unwrap();
     let token_ids = tokenizer.encode_ordinary(&text);
 
-    let dataset = GPTDatasetV1::new(
+    let dataset = GptDataset::new(
         &token_ids,
         config.model.context_length,
         config.stride_length,
     );
     let (train_dataset, val_dataset) = dataset.split_to_train_val(config.val_ratio);
 
-    let train_dataloader = DataLoaderBuilder::new(GPTBatcher)
+    let train_dataloader = DataLoaderBuilder::new(GptBatcher)
         .num_workers(config.num_workers)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .build(train_dataset);
-    let val_dataloader = DataLoaderBuilder::new(GPTBatcher)
+    let val_dataloader = DataLoaderBuilder::new(GptBatcher)
         .num_workers(config.num_workers)
         .batch_size(config.batch_size)
         .shuffle(config.seed)
         .build(val_dataset);
 
-    let model: GPTModel<B> = config.model.init(device);
+    let model: Gpt2<B> = config.model.init(device);
 
     let learner = LearnerBuilder::new(workdir)
         .metric_train_numeric(AccuracyMetric::new())
@@ -87,7 +87,7 @@ pub fn train<B: AutodiffBackend>(
         .expect("Trained model should be saved successfully");
 }
 
-impl<B: Backend> GPTModel<B> {
+impl<B: Backend> Gpt2<B> {
     pub fn forward_classification(
         &self,
         inputs: Tensor<B, 2, Int>,
@@ -105,16 +105,16 @@ impl<B: Backend> GPTModel<B> {
     }
 }
 
-impl<B: AutodiffBackend> TrainStep<GPTBatch<B>, ClassificationOutput<B>> for GPTModel<B> {
-    fn step(&self, batch: GPTBatch<B>) -> TrainOutput<ClassificationOutput<B>> {
+impl<B: AutodiffBackend> TrainStep<GptBatch<B>, ClassificationOutput<B>> for Gpt2<B> {
+    fn step(&self, batch: GptBatch<B>) -> TrainOutput<ClassificationOutput<B>> {
         let item = self.forward_classification(batch.inputs, batch.targets);
 
         TrainOutput::new(self, item.loss.backward(), item)
     }
 }
 
-impl<B: Backend> ValidStep<GPTBatch<B>, ClassificationOutput<B>> for GPTModel<B> {
-    fn step(&self, batch: GPTBatch<B>) -> ClassificationOutput<B> {
+impl<B: Backend> ValidStep<GptBatch<B>, ClassificationOutput<B>> for Gpt2<B> {
+    fn step(&self, batch: GptBatch<B>) -> ClassificationOutput<B> {
         self.forward_classification(batch.inputs, batch.targets)
     }
 }
